@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Soulgreen — Artwork Manager</title>
+
+<!-- Firebase compat SDK (works as plain script, no bundler needed) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --black: #0a0a0a; --white: #ffffff;
+    --bg: #f7f7f5; --surface: #ffffff; --surface2: #f0efeb;
+    --border: rgba(0,0,0,0.1); --border2: rgba(0,0,0,0.18);
+    --text: #0a0a0a; --muted: #888880;
+    --mono: 'DM Mono','Courier New',monospace;
+    --sans: 'DM Sans',system-ui,sans-serif;
+    --ok-bg:#e6f5e0; --ok-fg:#2d6a1f;
+    --wip-bg:#fef3d0; --wip-fg:#7a5200;
+    --ko-bg:#fce8e8; --ko-fg:#8b1a1a;
+    --wait-bg:#e3eeff; --wait-fg:#1a3d8b;
+    --na-bg:#f0efeb; --na-fg:#888880;
+    --sidebar-w:220px;
+  }
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap');
+
+  body { font-family:var(--sans); background:var(--bg); color:var(--text); height:100vh; display:flex; overflow:hidden; font-size:14px; -webkit-font-smoothing:antialiased; }
+
+  /* SIDEBAR */
+  .sidebar { width:var(--sidebar-w); min-width:var(--sidebar-w); background:var(--black); display:flex; flex-direction:column; overflow:hidden; }
+  .sidebar-logo { padding:20px 16px 16px; border-bottom:1px solid rgba(255,255,255,0.08); flex-shrink:0; }
+  .logo-mark { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
+  .logo-square { width:20px; height:20px; background:#fff; border-radius:3px; flex-shrink:0; }
+  .logo-name { font-family:var(--mono); font-size:13px; font-weight:500; color:#fff; letter-spacing:0.05em; }
+  .logo-sub { font-size:10px; color:rgba(255,255,255,0.35); letter-spacing:0.06em; text-transform:uppercase; padding-left:28px; }
+  .sidebar-nav { flex:1; overflow-y:auto; padding:12px 0 16px; scrollbar-width:none; }
+  .sidebar-nav::-webkit-scrollbar { display:none; }
+  .nav-section-label { padding:12px 16px 5px; font-size:9px; color:rgba(255,255,255,0.25); letter-spacing:0.1em; text-transform:uppercase; font-family:var(--mono); }
+  .nav-item { display:flex; align-items:center; gap:9px; padding:7px 16px; cursor:pointer; font-size:12px; color:rgba(255,255,255,0.5); transition:all 0.12s; border-left:2px solid transparent; user-select:none; }
+  .nav-item:hover { background:rgba(255,255,255,0.05); color:rgba(255,255,255,0.85); }
+  .nav-item.active { background:rgba(255,255,255,0.09); color:#fff; border-left-color:#fff; }
+  .nav-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; transition:background 0.2s; }
+  .nav-sku-code { font-family:var(--mono); font-size:10px; }
+  .sidebar-footer { padding:10px 16px; border-top:1px solid rgba(255,255,255,0.08); flex-shrink:0; }
+  .sync-status { display:flex; align-items:center; gap:6px; font-size:10px; font-family:var(--mono); color:rgba(255,255,255,0.3); }
+  .sync-dot { width:6px; height:6px; border-radius:50%; background:rgba(255,255,255,0.2); flex-shrink:0; transition:background 0.3s; }
+  .sync-dot.synced { background:#4caf50; }
+  .sync-dot.syncing { background:#ff9800; animation:pulse 1s infinite; }
+  .sync-dot.offline { background:#f44336; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .sidebar-count { font-size:10px; color:rgba(255,255,255,0.25); font-family:var(--mono); margin-bottom:4px; }
+
+  /* MAIN */
+  .main { flex:1; display:flex; flex-direction:column; overflow:hidden; background:var(--bg); }
+  .topbar { background:var(--surface); border-bottom:1px solid var(--border); padding:0 24px; height:56px; display:flex; align-items:center; justify-content:space-between; flex-shrink:0; }
+  .topbar-left { display:flex; align-items:center; gap:12px; }
+  .topbar-title { font-size:15px; font-weight:500; }
+  .topbar-sep { color:var(--border2); font-size:18px; font-weight:200; }
+  .topbar-sub { font-size:12px; color:var(--muted); }
+  .topbar-right { display:flex; align-items:center; gap:8px; }
+  .content { flex:1; overflow-y:auto; padding:24px; scrollbar-width:thin; }
+  .content::-webkit-scrollbar { width:4px; }
+  .content::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
+
+  /* LOADING SCREEN */
+  .loading-screen { position:fixed; inset:0; background:var(--black); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; z-index:200; transition:opacity 0.4s; }
+  .loading-screen.hidden { opacity:0; pointer-events:none; }
+  .loading-logo { font-family:var(--mono); font-size:18px; color:#fff; letter-spacing:0.1em; }
+  .loading-sub { font-size:12px; color:rgba(255,255,255,0.4); font-family:var(--mono); }
+  .loading-bar-track { width:200px; height:2px; background:rgba(255,255,255,0.1); border-radius:1px; overflow:hidden; }
+  .loading-bar-fill { height:100%; background:#fff; border-radius:1px; animation:loadbar 1.5s ease-in-out infinite; }
+  @keyframes loadbar { 0%{width:0;margin-left:0} 50%{width:60%;margin-left:20%} 100%{width:0;margin-left:100%} }
+
+  /* BADGE */
+  .badge { display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:500; padding:3px 9px; border-radius:100px; white-space:nowrap; }
+  .badge.ok   { background:var(--ok-bg);   color:var(--ok-fg); }
+  .badge.wip  { background:var(--wip-bg);  color:var(--wip-fg); }
+  .badge.ko   { background:var(--ko-bg);   color:var(--ko-fg); }
+  .badge.wait { background:var(--wait-bg); color:var(--wait-fg); }
+  .badge.na   { background:var(--na-bg);   color:var(--na-fg); }
+
+  /* KPI */
+  .kpi-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-bottom:20px; }
+  .kpi-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:14px 16px; }
+  .kpi-card.dark { background:var(--black); border-color:var(--black); }
+  .kpi-card.danger { background:var(--ko-bg); border-color:rgba(139,26,26,0.15); }
+  .kpi-label { font-size:10px; color:var(--muted); letter-spacing:0.05em; text-transform:uppercase; font-family:var(--mono); margin-bottom:6px; }
+  .kpi-card.dark .kpi-label { color:rgba(255,255,255,0.4); }
+  .kpi-card.danger .kpi-label { color:var(--ko-fg); opacity:0.7; }
+  .kpi-value { font-size:30px; font-weight:300; line-height:1; font-family:var(--mono); }
+  .kpi-card.dark .kpi-value { color:#fff; }
+  .kpi-card.danger .kpi-value { color:var(--ko-fg); }
+  .kpi-denom { font-size:14px; opacity:0.4; }
+  .kpi-sub { font-size:11px; color:var(--muted); margin-top:5px; }
+  .kpi-card.dark .kpi-sub { color:rgba(255,255,255,0.35); }
+  .kpi-card.danger .kpi-sub { color:var(--ko-fg); opacity:0.7; }
+
+  /* PROGRESS */
+  .progress-wrap { margin-bottom:20px; }
+  .progress-header { display:flex; justify-content:space-between; font-size:11px; color:var(--muted); margin-bottom:7px; font-family:var(--mono); }
+  .progress-track { height:3px; background:var(--border); border-radius:2px; overflow:hidden; }
+  .progress-fill { height:100%; border-radius:2px; background:var(--black); transition:width 0.5s cubic-bezier(0.4,0,0.2,1); }
+
+  /* SECTION HEADER */
+  .sec-hdr { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid var(--border); }
+  .sec-hdr-label { font-size:10px; font-weight:500; color:var(--muted); letter-spacing:0.08em; text-transform:uppercase; font-family:var(--mono); }
+
+  /* FILTER TABS */
+  .filter-tabs { display:flex; gap:6px; margin-bottom:16px; flex-wrap:wrap; }
+  .filter-tab { font-size:11px; padding:5px 13px; border-radius:100px; border:1px solid var(--border2); cursor:pointer; color:var(--muted); background:var(--surface); font-family:var(--sans); transition:all 0.12s; }
+  .filter-tab:hover { border-color:var(--black); color:var(--black); }
+  .filter-tab.active { background:var(--black); color:#fff; border-color:var(--black); }
+
+  /* SKU TABLE */
+  .sku-table { width:100%; border-collapse:collapse; }
+  .sku-table th { text-align:left; font-size:10px; font-weight:500; color:var(--muted); letter-spacing:0.06em; text-transform:uppercase; font-family:var(--mono); padding:0 12px 8px 0; border-bottom:1px solid var(--border); }
+  .sku-table td { padding:10px 12px 10px 0; border-bottom:1px solid var(--border); vertical-align:middle; }
+  .sku-table tr:last-child td { border-bottom:none; }
+  .sku-table tbody tr { cursor:pointer; transition:background 0.1s; }
+  .sku-table tbody tr:hover td { background:rgba(0,0,0,0.02); }
+  .sku-code-cell { font-family:var(--mono); font-size:11px; color:var(--muted); }
+  .sku-name-cell { font-weight:500; font-size:13px; }
+  .mini-bar-wrap { display:flex; align-items:center; gap:8px; }
+  .mini-bar-track { flex:1; height:3px; background:var(--surface2); border-radius:2px; min-width:60px; }
+  .mini-bar-fill { height:100%; border-radius:2px; }
+  .mini-pct { font-size:11px; color:var(--muted); font-family:var(--mono); min-width:30px; }
+
+  /* DETAIL */
+  .back-btn { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); cursor:pointer; margin-bottom:18px; padding:6px 0; border:none; background:none; font-family:var(--sans); transition:color 0.1s; }
+  .back-btn:hover { color:var(--text); }
+  .detail-meta-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-bottom:20px; }
+  .meta-card { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:12px 14px; }
+  .meta-card-label { font-size:9px; color:var(--muted); letter-spacing:0.08em; text-transform:uppercase; font-family:var(--mono); margin-bottom:4px; }
+  .meta-card-val { font-size:13px; font-weight:500; }
+
+  .check-block { margin-bottom:16px; }
+  .check-block-header { display:flex; align-items:center; justify-content:space-between; padding:10px 14px; background:var(--black); border-radius:8px 8px 0 0; color:#fff; }
+  .check-block-title { font-size:11px; font-weight:500; letter-spacing:0.04em; font-family:var(--mono); }
+  .check-block-resp { font-size:10px; color:rgba(255,255,255,0.4); font-family:var(--mono); }
+  .check-rows { border:1px solid var(--border); border-top:none; border-radius:0 0 8px 8px; overflow:hidden; background:var(--surface); }
+  .check-row { display:flex; align-items:center; padding:10px 14px; border-bottom:1px solid var(--border); gap:12px; transition:background 0.1s; }
+  .check-row:last-child { border-bottom:none; }
+  .check-row:hover { background:rgba(0,0,0,0.015); }
+  .check-row-name { flex:1; font-size:13px; }
+  .check-row-note { font-size:11px; color:var(--muted); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  .status-select { font-size:11px; font-weight:500; padding:4px 24px 4px 10px; border-radius:100px; border:none; outline:none; cursor:pointer; appearance:none; -webkit-appearance:none; font-family:var(--sans); background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='rgba(0,0,0,0.3)'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 8px center; transition:opacity 0.1s; }
+  .status-select:hover { opacity:0.85; }
+  .status-select.ok   { background-color:var(--ok-bg);   color:var(--ok-fg); }
+  .status-select.wip  { background-color:var(--wip-bg);  color:var(--wip-fg); }
+  .status-select.ko   { background-color:var(--ko-bg);   color:var(--ko-fg); }
+  .status-select.wait { background-color:var(--wait-bg); color:var(--wait-fg); }
+  .status-select.na   { background-color:var(--na-bg);   color:var(--na-fg); }
+
+  .global-bar { display:flex; align-items:center; justify-content:space-between; padding:10px 14px; background:var(--surface2); border-radius:8px; margin-top:8px; border:1px solid var(--border); }
+  .global-bar-label { font-size:10px; font-weight:500; color:var(--muted); letter-spacing:0.06em; text-transform:uppercase; font-family:var(--mono); }
+
+  /* LOG */
+  .log-section { margin-top:20px; }
+  .log-table { width:100%; border-collapse:collapse; font-size:12px; margin-top:10px; }
+  .log-table th { text-align:left; font-size:9px; font-weight:500; color:var(--muted); letter-spacing:0.06em; text-transform:uppercase; font-family:var(--mono); padding:0 10px 7px 0; border-bottom:1px solid var(--border); }
+  .log-table td { padding:8px 10px 8px 0; border-bottom:1px solid var(--border); vertical-align:top; }
+  .log-table tr:last-child td { border-bottom:none; }
+  .log-add-btn { display:inline-flex; align-items:center; gap:5px; font-size:11px; padding:5px 12px; border-radius:6px; border:1px dashed var(--border2); cursor:pointer; color:var(--muted); background:none; font-family:var(--sans); margin-top:10px; transition:all 0.1s; }
+  .log-add-btn:hover { border-color:var(--black); color:var(--black); background:var(--surface2); }
+  .log-input { width:100%; padding:4px 0; border:none; border-bottom:1px solid var(--border2); background:transparent; font-size:12px; font-family:var(--sans); color:var(--text); outline:none; }
+  .log-input:focus { border-bottom-color:var(--black); }
+
+  /* DOCS */
+  .docs-section { margin-top:20px; margin-bottom:4px; }
+  .docs-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:10px; }
+  .doc-category { background:var(--surface); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+  .doc-category-header { display:flex; align-items:center; justify-content:space-between; padding:9px 12px; border-bottom:1px solid var(--border); background:var(--surface2); }
+  .doc-category-title { font-size:10px; font-weight:500; color:var(--muted); letter-spacing:0.06em; text-transform:uppercase; font-family:var(--mono); }
+  .doc-add-link { font-size:11px; color:var(--muted); cursor:pointer; background:none; border:none; font-family:var(--sans); padding:0; display:flex; align-items:center; gap:3px; transition:color 0.1s; }
+  .doc-add-link:hover { color:var(--text); }
+  .doc-items { padding:4px 0; min-height:36px; }
+  .doc-item { display:flex; align-items:center; gap:8px; padding:7px 12px; border-bottom:1px solid var(--border); transition:background 0.1s; }
+  .doc-item:last-child { border-bottom:none; }
+  .doc-item:hover { background:rgba(0,0,0,0.02); }
+  .doc-item-icon { width:24px; height:24px; border-radius:5px; background:var(--surface2); display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:12px; }
+  .doc-item-name { flex:1; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .doc-item-link { font-size:11px; color:var(--muted); text-decoration:none; display:flex; align-items:center; gap:3px; flex-shrink:0; transition:color 0.1s; }
+  .doc-item-link:hover { color:var(--text); }
+  .doc-item-del { background:none; border:none; cursor:pointer; color:var(--border2); font-size:14px; line-height:1; padding:0 2px; flex-shrink:0; transition:color 0.1s; }
+  .doc-item-del:hover { color:var(--ko-fg); }
+  .doc-empty { padding:10px 12px; font-size:11px; color:var(--muted); font-style:italic; }
+
+  /* Drive pills */
+  .drive-pill { display:inline-flex; align-items:center; gap:4px; font-size:10px; color:#1a3d8b; background:#e3eeff; padding:2px 7px; border-radius:100px; text-decoration:none; flex-shrink:0; transition:opacity 0.1s; }
+  .drive-pill:hover { opacity:0.75; }
+  .drive-pill-add { display:inline-flex; align-items:center; gap:3px; font-size:10px; color:var(--muted); background:none; border:1px dashed var(--border2); padding:2px 7px; border-radius:100px; cursor:pointer; font-family:var(--sans); flex-shrink:0; transition:all 0.1s; }
+  .drive-pill-add:hover { border-color:var(--black); color:var(--black); }
+
+  /* MODAL */
+  .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; z-index:100; animation:fadeIn 0.15s ease; }
+  @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+  .modal { background:var(--surface); border-radius:10px; padding:22px 24px; width:420px; box-shadow:0 8px 32px rgba(0,0,0,0.15); animation:slideUp 0.15s ease; }
+  @keyframes slideUp { from{transform:translateY(8px);opacity:0} to{transform:translateY(0);opacity:1} }
+  .modal-title { font-size:14px; font-weight:500; margin-bottom:16px; }
+  .modal-field { margin-bottom:12px; }
+  .modal-label { display:block; font-size:10px; font-weight:500; color:var(--muted); letter-spacing:0.06em; text-transform:uppercase; font-family:var(--mono); margin-bottom:5px; }
+  .modal-input { width:100%; padding:8px 10px; border:1px solid var(--border2); border-radius:6px; font-size:13px; font-family:var(--sans); color:var(--text); background:var(--bg); outline:none; transition:border-color 0.1s; }
+  .modal-input:focus { border-color:var(--black); }
+  .modal-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:18px; }
+  .modal-btn { font-size:12px; padding:7px 16px; border-radius:6px; border:1px solid var(--border2); cursor:pointer; font-family:var(--sans); background:var(--surface); color:var(--text); transition:all 0.1s; }
+  .modal-btn.primary { background:var(--black); color:#fff; border-color:var(--black); }
+  .modal-btn:hover { opacity:0.8; }
+
+  /* EXPORT */
+  .export-btn { display:inline-flex; align-items:center; gap:6px; font-size:12px; padding:7px 14px; border-radius:7px; border:1px solid var(--border2); cursor:pointer; color:var(--text); background:var(--surface); font-family:var(--sans); transition:all 0.12s; }
+  .export-btn:hover { background:var(--black); color:#fff; border-color:var(--black); }
+
+  /* TOAST */
+  .toast { position:fixed; bottom:24px; right:24px; background:var(--black); color:#fff; font-size:12px; padding:10px 16px; border-radius:8px; opacity:0; transform:translateY(8px); transition:all 0.2s; pointer-events:none; z-index:999; font-family:var(--mono); }
+  .toast.show { opacity:1; transform:translateY(0); }
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div class="loading-screen" id="loading-screen">
+  <div class="loading-logo">SOULGREEN</div>
+  <div class="loading-sub" id="loading-msg">Connessione al database...</div>
+  <div class="loading-bar-track"><div class="loading-bar-fill"></div></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-mark">
+      <div class="logo-square"></div>
+      <span class="logo-name">SOULGREEN</span>
+    </div>
+    <div class="logo-sub">Artwork Manager</div>
+  </div>
+  <div class="sidebar-nav">
+    <div class="nav-section-label">Panoramica</div>
+    <div class="nav-item active" id="nav-dashboard" onclick="showDashboard()">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16" style="flex-shrink:0">
+        <rect x="1" y="1" width="6" height="6" rx="1.2" stroke="currentColor" stroke-width="1.3"/>
+        <rect x="9" y="1" width="6" height="6" rx="1.2" stroke="currentColor" stroke-width="1.3"/>
+        <rect x="1" y="9" width="6" height="6" rx="1.2" stroke="currentColor" stroke-width="1.3"/>
+        <rect x="9" y="9" width="6" height="6" rx="1.2" stroke="currentColor" stroke-width="1.3"/>
+      </svg>
+      Dashboard
+    </div>
+    <div class="nav-section-label" style="margin-top:8px">Prodotti</div>
+    <div id="nav-skus"></div>
+  </div>
+  <div class="sidebar-footer">
+    <div class="sidebar-count" id="sidebar-count">—/11 completati</div>
+    <div class="sync-status">
+      <div class="sync-dot" id="sync-dot"></div>
+      <span id="sync-label">Connessione...</span>
+    </div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-left">
+      <span class="topbar-title" id="topbar-title">Dashboard</span>
+      <span class="topbar-sep">·</span>
+      <span class="topbar-sub" id="topbar-sub">Stato avanzamento artwork — 11 SKU</span>
+    </div>
+    <div class="topbar-right" id="topbar-right">
+      <button class="export-btn" onclick="exportCSV()">
+        <svg width="13" height="13" fill="none" viewBox="0 0 16 16"><path d="M8 2v8M4 7l4 4 4-4M2 12h12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+        Esporta CSV
+      </button>
+    </div>
+  </div>
+  <div class="content" id="content"></div>
+</div>
+
+<script>
+// ── FIREBASE CONFIG ───────────────────────────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyBa1Fcs9gQpoSsWz7zGFvjuKDYYdFQqd0o",
+  authDomain: "gestioneartwork.firebaseapp.com",
+  projectId: "gestioneartwork",
+  storageBucket: "gestioneartwork.firebasestorage.app",
+  messagingSenderId: "14889226161",
+  appId: "1:14889226161:web:f3983dfc00b0c78397f790"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+// ── CONSTANTS ─────────────────────────────────────────────────────
+const STICK_CHECKS = [
+  "Dimensioni bobina","Senso bobina","Fustella",
+  "Dati variabili (lotto, scad.)","Tacca colore per il taglio",
+  "Testi di legge su stick","Versione / numero artwork"
+];
+const AST_F12 = [
+  "Testi legali – correttezza","Ingredienti & allergeni",
+  "Claims & indicazioni nutrizionali","Codice a barre astuccio"
+];
+const AST_F3 = ["Fustella","Colori Pantone / CMYK"];
+const ALL_STATUSES = ["– Da iniziare","🔄 In corso","✅ Approvato","❌ Rigettato","⏸ In attesa"];
+const STATUS_CLS = {
+  "– Da iniziare":"na","🔄 In corso":"wip",
+  "✅ Approvato":"ok","❌ Rigettato":"ko","⏸ In attesa":"wait"
+};
+const DOC_CATS = ["Fustella Stick","Fustella Astuccio","TDS Materie Prime","Grafica","Altro"];
+const DOC_ICONS = {"Fustella Stick":"✂","Fustella Astuccio":"✂","TDS Materie Prime":"🧪","Grafica":"🎨","Altro":"📎"};
+
+// Default SKU definitions (used only for first-time DB initialization)
+const SKU_DEFS = [
+  ["SKU-001","Prodotto A","Fornitore 1"],["SKU-002","Prodotto B","Fornitore 1"],
+  ["SKU-003","Prodotto C","Fornitore 1"],["SKU-004","Prodotto D","Fornitore 1"],
+  ["SKU-005","Prodotto E","Fornitore 1"],["SKU-006","Prodotto F","Fornitore 1"],
+  ["SKU-007","Prodotto G","Fornitore 1"],["SKU-008","Prodotto H","Fornitore 1"],
+  ["SKU-009","Prodotto I","Fornitore 1"],["SKU-010","Prodotto L","Fornitore 1"],
+  ["SKU-011","Prodotto M","Fornitore 2"],
+];
+
+function defaultSkuDoc(name, supplier) {
+  return {
+    name, supplier,
+    stick: Object.fromEntries(STICK_CHECKS.map(c=>[c,"– Da iniziare"])),
+    astuccio: Object.fromEntries([...AST_F12,...AST_F3].map(c=>[c,"– Da iniziare"])),
+    notes: {},
+    log: [],
+    docs: Object.fromEntries(DOC_CATS.map(cat=>[cat,[]])),
+    checkLinks: {}
+  };
+}
+
+// ── IN-MEMORY CACHE (updated by Firestore listener) ───────────────
+const DATA = {};
+
+// ── STATE ─────────────────────────────────────────────────────────
+let currentView = "dashboard";
+let currentSku = null;
+let filterSupplier = "Tutti";
+let isSyncing = false;
+
+// ── SYNC STATUS UI ────────────────────────────────────────────────
+function setSyncStatus(state) {
+  const dot = document.getElementById("sync-dot");
+  const lbl = document.getElementById("sync-label");
+  if (!dot) return;
+  dot.className = "sync-dot " + state;
+  lbl.textContent = state==="synced"?"Sincronizzato":state==="syncing"?"Salvataggio...":"Offline";
+}
+
+// ── TOAST ─────────────────────────────────────────────────────────
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>el.classList.remove("show"), 2400);
+}
+
+// ── LOGIC ─────────────────────────────────────────────────────────
+function globalStatus(checks) {
+  const v = Object.values(checks||{});
+  if (!v.length) return "– Da iniziare";
+  if (v.includes("❌ Rigettato")) return "❌ Rigettato";
+  if (v.every(x=>x==="✅ Approvato")) return "✅ Approvato";
+  if (v.includes("🔄 In corso")) return "🔄 In corso";
+  if (v.includes("⏸ In attesa")) return "⏸ In attesa";
+  return "– Da iniziare";
+}
+
+function totalChecks() { return STICK_CHECKS.length + AST_F12.length + AST_F3.length; }
+
+function skuPct(sku) {
+  const d = DATA[sku]; if (!d) return 0;
+  const all = [...Object.values(d.stick||{}),...Object.values(d.astuccio||{})];
+  return Math.round(all.filter(v=>v==="✅ Approvato").length / totalChecks() * 100);
+}
+
+function dotColor(sku) {
+  const d = DATA[sku]; if (!d) return "rgba(255,255,255,0.2)";
+  const gs=globalStatus(d.stick), ga=globalStatus(d.astuccio);
+  if (gs==="❌ Rigettato"||ga==="❌ Rigettato") return "#8b1a1a";
+  if (gs==="✅ Approvato"&&ga==="✅ Approvato") return "#2d6a1f";
+  if (gs==="🔄 In corso"||ga==="🔄 In corso") return "#7a5200";
+  if (gs==="⏸ In attesa"||ga==="⏸ In attesa") return "#1a3d8b";
+  return "rgba(255,255,255,0.2)";
+}
+
+function badge(status) {
+  return `<span class="badge ${STATUS_CLS[status]||"na"}">${status}</span>`;
+}
+
+// ── FIRESTORE SAVE ────────────────────────────────────────────────
+async function saveSku(sku) {
+  setSyncStatus("syncing");
+  try {
+    await db.collection("skus").doc(sku).set(DATA[sku]);
+    setSyncStatus("synced");
+  } catch(e) {
+    setSyncStatus("offline");
+    toast("Errore salvataggio — verifica connessione");
+    console.error(e);
+  }
+}
+
+// ── FIRESTORE REALTIME LISTENER ───────────────────────────────────
+function startListener() {
+  db.collection("skus").onSnapshot(snapshot => {
+    snapshot.docChanges().forEach(change => {
+      const sku = change.doc.id;
+      if (change.type === "removed") { delete DATA[sku]; return; }
+      const incoming = change.doc.data();
+      // Ensure arrays/objects don't get nuked by partial data
+      incoming.log = incoming.log || [];
+      incoming.docs = incoming.docs || Object.fromEntries(DOC_CATS.map(c=>[c,[]]));
+      DOC_CATS.forEach(cat=>{ if(!incoming.docs[cat]) incoming.docs[cat]=[]; });
+      incoming.checkLinks = incoming.checkLinks || {};
+      DATA[sku] = incoming;
+    });
+
+    // Refresh UI if showing live data
+    renderSidebar();
+    if (currentView==="dashboard") renderDashboard();
+    else if (currentView==="detail" && currentSku) {
+      // Only re-render detail if change was NOT triggered by local user action
+      // (avoids cursor jumping while typing in log fields)
+      if (!isSyncing) renderDetail(currentSku);
+    }
+    setSyncStatus("synced");
+  }, err => {
+    setSyncStatus("offline");
+    console.error("Firestore listener error:", err);
+  });
+}
+
+// ── INIT: load or seed DB ─────────────────────────────────────────
+async function init() {
+  document.getElementById("loading-msg").textContent = "Caricamento prodotti...";
+  try {
+    const snap = await db.collection("skus").get();
+    if (snap.empty) {
+      // First run: seed all SKUs
+      document.getElementById("loading-msg").textContent = "Prima configurazione...";
+      const batch = db.batch();
+      SKU_DEFS.forEach(([sku, name, supplier]) => {
+        batch.set(db.collection("skus").doc(sku), defaultSkuDoc(name, supplier));
+      });
+      await batch.commit();
+    } else {
+      snap.forEach(doc => {
+        const d = doc.data();
+        d.log = d.log||[];
+        d.docs = d.docs||Object.fromEntries(DOC_CATS.map(c=>[c,[]]));
+        DOC_CATS.forEach(cat=>{ if(!d.docs[cat]) d.docs[cat]=[]; });
+        d.checkLinks = d.checkLinks||{};
+        DATA[doc.id] = d;
+      });
+    }
+    // Start realtime listener
+    startListener();
+    // Hide loading screen
+    const ls = document.getElementById("loading-screen");
+    ls.classList.add("hidden");
+    setTimeout(()=>ls.style.display="none", 400);
+    // Render app
+    renderSidebar();
+    showDashboard();
+    setSyncStatus("synced");
+  } catch(e) {
+    document.getElementById("loading-msg").textContent = "Errore connessione. Ricarica la pagina.";
+    console.error(e);
+  }
+}
+
+// ── SIDEBAR ───────────────────────────────────────────────────────
+function renderSidebar() {
+  const skus = Object.keys(DATA).sort();
+  const completi = skus.filter(sku=>{
+    const d=DATA[sku];
+    return globalStatus(d.stick)==="✅ Approvato"&&globalStatus(d.astuccio)==="✅ Approvato";
+  }).length;
+  const countEl = document.getElementById("sidebar-count");
+  if (countEl) countEl.textContent = `${completi}/${skus.length} completati`;
+
+  document.getElementById("nav-skus").innerHTML = skus.map(sku=>`
+    <div class="nav-item ${currentSku===sku&&currentView==="detail"?"active":""}" onclick="showDetail('${sku}')">
+      <div class="nav-dot" style="background:${dotColor(sku)}"></div>
+      <span class="nav-sku-code">${sku}</span>
+    </div>`).join("");
+  document.getElementById("nav-dashboard").className = "nav-item "+(currentView==="dashboard"?"active":"");
+}
+
+// ── DASHBOARD ─────────────────────────────────────────────────────
+function showDashboard() {
+  currentView="dashboard"; currentSku=null;
+  document.getElementById("topbar-title").textContent="Dashboard";
+  document.getElementById("topbar-sub").textContent="Stato avanzamento artwork — 11 SKU";
+  document.getElementById("topbar-right").innerHTML=`<button class="export-btn" onclick="exportCSV()">
+    <svg width="13" height="13" fill="none" viewBox="0 0 16 16"><path d="M8 2v8M4 7l4 4 4-4M2 12h12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+    Esporta CSV</button>`;
+  renderSidebar();
+  renderDashboard();
+}
+
+function renderDashboard() {
+  const skus = Object.keys(DATA).sort();
+  let stickOk=0,astOk=0,blocchi=0,completi=0,totalPct=0;
+  skus.forEach(sku=>{
+    const d=DATA[sku];
+    const gs=globalStatus(d.stick),ga=globalStatus(d.astuccio);
+    if(gs==="✅ Approvato") stickOk++;
+    if(ga==="✅ Approvato") astOk++;
+    if(gs==="❌ Rigettato"||ga==="❌ Rigettato") blocchi++;
+    if(gs==="✅ Approvato"&&ga==="✅ Approvato") completi++;
+    totalPct+=skuPct(sku);
+  });
+  const avgPct = skus.length ? Math.round(totalPct/skus.length) : 0;
+  const filtered = filterSupplier==="Tutti" ? skus : skus.filter(sku=>DATA[sku].supplier===filterSupplier);
+
+  document.getElementById("content").innerHTML=`
+    <div class="kpi-grid">
+      <div class="kpi-card dark">
+        <div class="kpi-label">Completati</div>
+        <div class="kpi-value">${completi}<span class="kpi-denom">/${skus.length}</span></div>
+        <div class="kpi-sub">Stick + Astuccio approvati</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Stick</div>
+        <div class="kpi-value">${stickOk}<span class="kpi-denom" style="font-size:14px">/${skus.length}</span></div>
+        <div class="kpi-sub">packaging stick approvati</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Astuccio</div>
+        <div class="kpi-value">${astOk}<span class="kpi-denom" style="font-size:14px">/${skus.length}</span></div>
+        <div class="kpi-sub">astucci approvati</div>
+      </div>
+      <div class="kpi-card ${blocchi>0?"danger":""}">
+        <div class="kpi-label">Blocchi ❌</div>
+        <div class="kpi-value">${blocchi}</div>
+        <div class="kpi-sub">SKU con rigetto aperto</div>
+      </div>
+    </div>
+    <div class="progress-wrap">
+      <div class="progress-header"><span>Avanzamento check complessivo</span><span>${avgPct}%</span></div>
+      <div class="progress-track"><div class="progress-fill" id="main-progress" style="width:0%"></div></div>
+    </div>
+    <div class="filter-tabs">
+      ${["Tutti","Fornitore 1","Fornitore 2"].map(f=>
+        `<button class="filter-tab ${filterSupplier===f?"active":""}" onclick="setFilter('${f}')">${f}</button>`
+      ).join("")}
+    </div>
+    <div class="sec-hdr"><span class="sec-hdr-label">Prodotti — ${filtered.length} risultati</span></div>
+    <table class="sku-table">
+      <thead><tr>
+        <th>SKU</th><th>Prodotto</th><th>Fornitore</th>
+        <th>Stick</th><th>Astuccio</th><th>Avanzamento</th>
+      </tr></thead>
+      <tbody>
+        ${filtered.map(sku=>{
+          const d=DATA[sku];
+          const gs=globalStatus(d.stick),ga=globalStatus(d.astuccio);
+          const pct=skuPct(sku);
+          const bc=pct===100?"#2d6a1f":pct>0?"#7a5200":"#ddd";
+          return `<tr onclick="showDetail('${sku}')">
+            <td><span class="sku-code-cell">${sku}</span></td>
+            <td><span class="sku-name-cell">${d.name}</span></td>
+            <td style="font-size:12px;color:var(--muted)">${d.supplier}</td>
+            <td>${badge(gs)}</td><td>${badge(ga)}</td>
+            <td><div class="mini-bar-wrap">
+              <div class="mini-bar-track"><div class="mini-bar-fill" style="width:${pct}%;background:${bc}"></div></div>
+              <span class="mini-pct">${pct}%</span>
+            </div></td>
+          </tr>`;
+        }).join("")}
+      </tbody>
+    </table>`;
+  setTimeout(()=>{ const e=document.getElementById("main-progress"); if(e) e.style.width=avgPct+"%"; },80);
+}
+
+function setFilter(f) { filterSupplier=f; renderDashboard(); }
+
+// ── DETAIL ────────────────────────────────────────────────────────
+function showDetail(sku) {
+  currentView="detail"; currentSku=sku;
+  const d=DATA[sku];
+  document.getElementById("topbar-title").textContent=`${sku} — ${d.name}`;
+  document.getElementById("topbar-sub").textContent=`${d.supplier}  ·  Fornitore 3 (astuccio)`;
+  document.getElementById("topbar-right").innerHTML=`<button class="export-btn" onclick="exportCSV()">
+    <svg width="13" height="13" fill="none" viewBox="0 0 16 16"><path d="M8 2v8M4 7l4 4 4-4M2 12h12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+    Esporta CSV</button>`;
+  renderSidebar();
+  renderDetail(sku);
+}
+
+function renderDetail(sku) {
+  const d=DATA[sku]; if(!d) return;
+  const gs=globalStatus(d.stick), ga=globalStatus(d.astuccio);
+  const tot=totalChecks();
+  const ok=[...Object.values(d.stick||{}),...Object.values(d.astuccio||{})].filter(v=>v==="✅ Approvato").length;
+  const pct=Math.round(ok/tot*100);
+
+  function checkRows(checks, section) {
+    return Object.entries(checks).map(([check,status])=>{
+      const cls=STATUS_CLS[status]||"na";
+      const noteVal=(d.notes&&d.notes[check])||"";
+      const linkUrl=(d.checkLinks&&d.checkLinks[check])||"";
+      const sc=check.replace(/'/g,"\\'").replace(/"/g,"&quot;");
+      const opts=ALL_STATUSES.map(s=>`<option value="${s}" ${s===status?"selected":""}>${s}</option>`).join("");
+      const linkPill=linkUrl
+        ? `<a class="drive-pill" href="${linkUrl}" target="_blank">
+            <svg width="10" height="10" fill="none" viewBox="0 0 16 16"><path d="M3 8l4 4 6-8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Drive</a>`
+        : `<button class="drive-pill-add" onclick="openCheckLinkModal('${sku}','${sc}')">
+            <svg width="9" height="9" fill="none" viewBox="0 0 16 16"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Link</button>`;
+      return `<div class="check-row">
+        <span class="check-row-name">${check}</span>
+        ${noteVal?`<span class="check-row-note" title="${noteVal}">${noteVal}</span>`:""}
+        ${linkPill}
+        <select class="status-select ${cls}" onchange="updateCheck('${sku}','${section}','${sc}',this)">${opts}</select>
+      </div>`;
+    }).join("");
+  }
+
+  const logRows=(d.log||[]).map((e,i)=>`
+    <tr>
+      <td>${e.data||""}</td><td>${e.pack||""}</td>
+      <td style="font-family:var(--mono);font-size:11px">${e.ver||""}</td>
+      <td>${e.azione||""}</td>
+      <td>${badge(e.esito||"– Da iniziare")}</td>
+      <td style="color:var(--muted)">${e.note||""}</td>
+    </tr>`).join("")
+    ||`<tr><td colspan="6" style="color:var(--muted);padding:10px 0">Nessuna revisione registrata</td></tr>`;
+
+  document.getElementById("content").innerHTML=`
+    <button class="back-btn" onclick="showDashboard()">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      Dashboard
+    </button>
+    <div class="detail-meta-grid">
+      <div class="meta-card"><div class="meta-card-label">Fornitore produzione</div><div class="meta-card-val">${d.supplier}</div></div>
+      <div class="meta-card"><div class="meta-card-label">Fornitore astuccio</div><div class="meta-card-val">Fornitore 3</div></div>
+      <div class="meta-card"><div class="meta-card-label">Avanzamento</div><div class="meta-card-val" style="font-family:var(--mono)">${ok}/${tot} — ${pct}%</div></div>
+    </div>
+    <div class="progress-wrap">
+      <div class="progress-header"><span>Check completati</span><span>${pct}%</span></div>
+      <div class="progress-track"><div class="progress-fill" id="det-progress" style="width:0%"></div></div>
+    </div>
+    <div class="check-block">
+      <div class="check-block-header"><span class="check-block-title">PACKAGING STICK</span><span class="check-block-resp">${d.supplier}</span></div>
+      <div class="check-rows">${checkRows(d.stick,"stick")}</div>
+      <div class="global-bar"><span class="global-bar-label">Status globale stick</span><span id="gs-stick">${badge(gs)}</span></div>
+    </div>
+    <div class="check-block">
+      <div class="check-block-header"><span class="check-block-title">ASTUCCIO — TESTI LEGALI</span><span class="check-block-resp">${d.supplier}</span></div>
+      <div class="check-rows">${checkRows(Object.fromEntries(AST_F12.map(c=>[c,d.astuccio[c]])),"astuccio")}</div>
+    </div>
+    <div class="check-block">
+      <div class="check-block-header"><span class="check-block-title">ASTUCCIO — MISURE &amp; GRAFICA</span><span class="check-block-resp">Fornitore 3</span></div>
+      <div class="check-rows">${checkRows(Object.fromEntries(AST_F3.map(c=>[c,d.astuccio[c]])),"astuccio")}</div>
+      <div class="global-bar"><span class="global-bar-label">Status globale astuccio</span><span id="gs-ast">${badge(ga)}</span></div>
+    </div>
+    <div class="log-section">
+      <div class="sec-hdr"><span class="sec-hdr-label">Log Revisioni</span></div>
+      <table class="log-table">
+        <thead><tr><th>Data</th><th>Packaging</th><th>Versione</th><th>Azione / Inviato da</th><th>Esito</th><th>Note</th></tr></thead>
+        <tbody id="log-tbody">${logRows}</tbody>
+      </table>
+      <button class="log-add-btn" onclick="addLogRow('${sku}')">+ Aggiungi revisione</button>
+    </div>
+    <div class="docs-section">
+      <div class="sec-hdr">
+        <span class="sec-hdr-label">Documenti Drive</span>
+        <button class="doc-add-link" onclick="openDocModal('${sku}',null)">
+          <svg width="11" height="11" fill="none" viewBox="0 0 16 16"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          Aggiungi documento
+        </button>
+      </div>
+      <div class="docs-grid" id="docs-grid">${renderDocsGrid(sku)}</div>
+    </div>`;
+  setTimeout(()=>{ const e=document.getElementById("det-progress"); if(e) e.style.width=pct+"%"; },80);
+}
+
+// ── UPDATE CHECK ──────────────────────────────────────────────────
+async function updateCheck(sku, section, check, el) {
+  isSyncing=true;
+  DATA[sku][section][check]=el.value;
+  el.className="status-select "+(STATUS_CLS[el.value]||"na");
+  const gs=globalStatus(DATA[sku].stick), ga=globalStatus(DATA[sku].astuccio);
+  const gsEl=document.getElementById("gs-stick"), gaEl=document.getElementById("gs-ast");
+  if(gsEl) gsEl.innerHTML=badge(gs);
+  if(gaEl) gaEl.innerHTML=badge(ga);
+  const tot=totalChecks();
+  const ok=[...Object.values(DATA[sku].stick),...Object.values(DATA[sku].astuccio)].filter(v=>v==="✅ Approvato").length;
+  const pEl=document.getElementById("det-progress");
+  if(pEl) pEl.style.width=Math.round(ok/tot*100)+"%";
+  renderSidebar();
+  await saveSku(sku);
+  isSyncing=false;
+  toast(`${check.slice(0,28)} → ${el.value}`);
+}
+
+// ── LOG ───────────────────────────────────────────────────────────
+async function addLogRow(sku) {
+  const today=new Date().toLocaleDateString("it-IT");
+  const entry={data:today,pack:"",ver:"v1.0",azione:"",esito:"🔄 In corso",note:""};
+  if (!DATA[sku].log) DATA[sku].log=[];
+  DATA[sku].log.push(entry);
+  const idx=DATA[sku].log.length-1;
+  await saveSku(sku);
+  const tbody=document.getElementById("log-tbody"); if(!tbody) return;
+  const tr=document.createElement("tr");
+  const opts=ALL_STATUSES.map(s=>`<option value="${s}" ${s===entry.esito?"selected":""}>${s}</option>`).join("");
+  tr.innerHTML=`
+    <td><input class="log-input" value="${today}" onchange="updateLog('${sku}',${idx},'data',this.value)" style="width:80px"></td>
+    <td><input class="log-input" placeholder="Stick / Astuccio" onchange="updateLog('${sku}',${idx},'pack',this.value)" style="width:90px"></td>
+    <td><input class="log-input" value="v1.0" onchange="updateLog('${sku}',${idx},'ver',this.value)" style="width:50px;font-family:var(--mono)"></td>
+    <td><input class="log-input" placeholder="Es. Invio bozza, commenti..." onchange="updateLog('${sku}',${idx},'azione',this.value)" style="width:160px"></td>
+    <td><select class="status-select wip" onchange="updateLog('${sku}',${idx},'esito',this.value);this.className='status-select '+(${JSON.stringify(STATUS_CLS)}[this.value]||'na')">${opts}</select></td>
+    <td><input class="log-input" placeholder="Note..." onchange="updateLog('${sku}',${idx},'note',this.value)"></td>`;
+  const rows=tbody.querySelectorAll("tr");
+  if(rows.length===1&&rows[0].querySelector("td[colspan]")) tbody.innerHTML="";
+  tbody.appendChild(tr);
+  tr.querySelector("input").focus();
+}
+
+async function updateLog(sku, idx, field, value) {
+  if(DATA[sku].log&&DATA[sku].log[idx]){
+    DATA[sku].log[idx][field]=value;
+    await saveSku(sku);
+  }
+}
+
+// ── DOCS ─────────────────────────────────────────────────────────
+function renderDocsGrid(sku) {
+  const d=DATA[sku];
+  return DOC_CATS.map(cat=>{
+    const items=(d.docs&&d.docs[cat])||[];
+    const itemsHtml=items.length
+      ? items.map((item,idx)=>`
+          <div class="doc-item">
+            <div class="doc-item-icon">${DOC_ICONS[cat]||"📎"}</div>
+            <span class="doc-item-name" title="${item.name}">${item.name}</span>
+            <a class="doc-item-link" href="${item.url}" target="_blank">
+              <svg width="11" height="11" fill="none" viewBox="0 0 16 16"><path d="M4 12L12 4M7 4h5v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Apri
+            </a>
+            <button class="doc-item-del" onclick="deleteDoc('${sku}','${cat.replace(/'/g,"\\'")}',${idx})">×</button>
+          </div>`).join("")
+      : `<div class="doc-empty">Nessun documento</div>`;
+    return `<div class="doc-category">
+      <div class="doc-category-header">
+        <span class="doc-category-title">${DOC_ICONS[cat]} ${cat}</span>
+        <button class="doc-add-link" onclick="openDocModal('${sku}','${cat.replace(/'/g,"\\'")}')">
+          <svg width="10" height="10" fill="none" viewBox="0 0 16 16"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Aggiungi
+        </button>
+      </div>
+      <div class="doc-items">${itemsHtml}</div>
+    </div>`;
+  }).join("");
+}
+
+async function deleteDoc(sku, cat, idx) {
+  if(!DATA[sku].docs[cat]) return;
+  DATA[sku].docs[cat].splice(idx,1);
+  await saveSku(sku);
+  const grid=document.getElementById("docs-grid");
+  if(grid) grid.innerHTML=renderDocsGrid(sku);
+  toast("Documento rimosso");
+}
+
+// ── MODALS ────────────────────────────────────────────────────────
+function openDocModal(sku, preselectedCat) {
+  const catOpts=DOC_CATS.map(c=>`<option value="${c}" ${c===preselectedCat?"selected":""}>${c}</option>`).join("");
+  const overlay=document.createElement("div");
+  overlay.className="modal-overlay"; overlay.id="modal-overlay";
+  overlay.innerHTML=`
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-title">Aggiungi documento Drive</div>
+      <div class="modal-field"><label class="modal-label">Categoria</label><select class="modal-input" id="modal-cat">${catOpts}</select></div>
+      <div class="modal-field"><label class="modal-label">Nome documento</label><input class="modal-input" id="modal-name" placeholder="Es. Fustella_SKU001_v2.pdf" autocomplete="off"></div>
+      <div class="modal-field"><label class="modal-label">Link Google Drive</label><input class="modal-input" id="modal-url" type="url" placeholder="https://drive.google.com/file/d/..." autocomplete="off"></div>
+      <div class="modal-actions">
+        <button class="modal-btn" onclick="closeModal()">Annulla</button>
+        <button class="modal-btn primary" onclick="saveDoc('${sku}')">Aggiungi</button>
+      </div>
+    </div>`;
+  overlay.addEventListener("click", closeModal);
+  document.body.appendChild(overlay);
+  setTimeout(()=>document.getElementById("modal-name").focus(),50);
+}
+
+async function saveDoc(sku) {
+  const cat=document.getElementById("modal-cat").value;
+  const name=document.getElementById("modal-name").value.trim();
+  const url=document.getElementById("modal-url").value.trim();
+  if(!name||!url){ toast("Inserisci nome e link"); return; }
+  if(!url.startsWith("http")){ toast("Link non valido"); return; }
+  if(!DATA[sku].docs[cat]) DATA[sku].docs[cat]=[];
+  DATA[sku].docs[cat].push({name,url});
+  await saveSku(sku);
+  closeModal();
+  const grid=document.getElementById("docs-grid");
+  if(grid) grid.innerHTML=renderDocsGrid(sku);
+  toast(`"${name}" aggiunto`);
+}
+
+function openCheckLinkModal(sku, check) {
+  const overlay=document.createElement("div");
+  overlay.className="modal-overlay"; overlay.id="modal-overlay";
+  overlay.innerHTML=`
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-title">Allega link Drive al check</div>
+      <div class="modal-field"><label class="modal-label">Check</label><div style="font-size:13px;color:var(--muted);padding:4px 0">${check}</div></div>
+      <div class="modal-field"><label class="modal-label">Link Google Drive</label>
+        <input class="modal-input" id="modal-check-url" type="url"
+          placeholder="https://drive.google.com/file/d/..."
+          value="${(DATA[sku].checkLinks&&DATA[sku].checkLinks[check])||""}"
+          autocomplete="off">
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn" onclick="closeModal()">Annulla</button>
+        <button class="modal-btn primary" onclick="saveCheckLink('${sku}','${check.replace(/'/g,"\\'")}')">Salva</button>
+      </div>
+    </div>`;
+  overlay.addEventListener("click", closeModal);
+  document.body.appendChild(overlay);
+  setTimeout(()=>document.getElementById("modal-check-url").focus(),50);
+}
+
+async function saveCheckLink(sku, check) {
+  const url=document.getElementById("modal-check-url").value.trim();
+  if(!url){ toast("Inserisci un link"); return; }
+  if(!url.startsWith("http")){ toast("Link non valido"); return; }
+  if(!DATA[sku].checkLinks) DATA[sku].checkLinks={};
+  DATA[sku].checkLinks[check]=url;
+  await saveSku(sku);
+  closeModal();
+  renderDetail(sku);
+  toast("Link allegato al check");
+}
+
+function closeModal() {
+  const el=document.getElementById("modal-overlay");
+  if(el) el.remove();
+}
+
+// ── EXPORT CSV ────────────────────────────────────────────────────
+function exportCSV() {
+  const rows=[["SKU","Prodotto","Fornitore","Status Stick","Status Astuccio","% Completamento"]];
+  Object.keys(DATA).sort().forEach(sku=>{
+    const d=DATA[sku];
+    rows.push([sku,d.name,d.supplier,globalStatus(d.stick),globalStatus(d.astuccio),skuPct(sku)+"%"]);
+  });
+  const csv=rows.map(r=>r.map(c=>`"${c}"`).join(",")).join("\n");
+  const a=document.createElement("a");
+  a.href="data:text/csv;charset=utf-8,\uFEFF"+encodeURIComponent(csv);
+  a.download=`Soulgreen_Artwork_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  toast("CSV esportato");
+}
+
+document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeModal(); });
+
+// ── START ─────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
