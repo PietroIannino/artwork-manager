@@ -406,12 +406,15 @@ function globalStatus(checks) {
 function totalChecks() { return STICK_CHECKS.length + AST_F12.length + AST_F3.length; }
 
 function skuPct(sku) {
-  const d = DATA[sku]; if (!d) return 0;
-  const all = [...Object.values(d.stick||{}),...Object.values(d.astuccio||{})];
-  return Math.round(all.filter(v=>v==="✅ Approvato").length / totalChecks() * 100);
+  const d=DATA[sku]; if(!d) return 0;
+  const all = [
+    ...STICK_CHECKS.map(c=>(d.stick||{})[c]||'– Da iniziare'),
+    ...[...AST_F12,...AST_F3].map(c=>(d.astuccio||{})[c]||'– Da iniziare')
+  ];
+  return Math.round(all.filter(v=>v==='✅ Approvato').length / totalChecks() * 100);
 }
-
 function dotColor(sku) {
+
   const d = DATA[sku]; if (!d) return "rgba(255,255,255,0.2)";
   const gs=globalStatus(d.stick), ga=globalStatus(d.astuccio);
   if (gs==="❌ Rigettato"||ga==="❌ Rigettato") return "#8b1a1a";
@@ -640,7 +643,9 @@ function renderDetail(sku) {
   const d=DATA[sku]; if(!d) return;
   const gs=globalStatus(d.stick), ga=globalStatus(d.astuccio);
   const tot=totalChecks();
-  const ok=[...Object.values(d.stick||{}),...Object.values(d.astuccio||{})].filter(v=>v==="✅ Approvato").length;
+  const canonicalStickVals = STICK_CHECKS.map(c=>(d.stick||{})[c]||'– Da iniziare');
+  const canonicalAstVals = [...AST_F12,...AST_F3].map(c=>(d.astuccio||{})[c]||'– Da iniziare');
+  const ok=[...canonicalStickVals,...canonicalAstVals].filter(v=>v==="✅ Approvato").length;
   const pct=Math.round(ok/tot*100);
 
   function checkRows(checks, section) {
@@ -708,7 +713,7 @@ function renderDetail(sku) {
           <span class="check-block-resp">${d.supplier}</span>
         </div>
       </div>
-      <div class="check-rows">${checkRows(d.stick,"stick")}</div>
+      <div class="check-rows">${checkRows(Object.fromEntries(STICK_CHECKS.map(c=>[c,d.stick[c]||'– Da iniziare'])),"stick")}</div>
       <div class="final-docs-grid">
         ${finalDocItem(sku,'stick','pdf','PDF Definitivo')}
         ${finalDocItem(sku,'stick','esecutivo','Esecutivo')}
@@ -777,7 +782,10 @@ async function updateCheck(sku, section, check, el) {
   if(gsEl) gsEl.innerHTML=badge(gs);
   if(gaEl) gaEl.innerHTML=badge(ga);
   const tot=totalChecks();
-  const ok=[...Object.values(DATA[sku].stick),...Object.values(DATA[sku].astuccio)].filter(v=>v==="✅ Approvato").length;
+  const ok=[
+    ...STICK_CHECKS.map(c=>(DATA[sku].stick||{})[c]||'– Da iniziare'),
+    ...[...AST_F12,...AST_F3].map(c=>(DATA[sku].astuccio||{})[c]||'– Da iniziare')
+  ].filter(v=>v==="✅ Approvato").length;
   const pEl=document.getElementById("det-progress");
   if(pEl) pEl.style.width=Math.round(ok/tot*100)+"%";
   renderSidebar();
