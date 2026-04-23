@@ -217,6 +217,34 @@
   /* TOAST */
   .toast { position:fixed; bottom:24px; right:24px; background:var(--black); color:#fff; font-size:12px; padding:10px 16px; border-radius:8px; opacity:0; transform:translateY(8px); transition:all 0.2s; pointer-events:none; z-index:999; font-family:var(--mono); }
   .toast.show { opacity:1; transform:translateY(0); }
+
+  /* DOCUMENTI FINALI */
+  .final-docs-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:12px 14px; background:rgba(0,0,0,0.02); border-top:1px solid var(--border); }
+  .final-doc-item { display:flex; flex-direction:column; gap:4px; }
+  .final-doc-label { font-size:9px; font-weight:500; color:var(--muted); letter-spacing:0.06em; text-transform:uppercase; font-family:var(--mono); }
+  .final-doc-link { display:inline-flex; align-items:center; gap:5px; font-size:11px; color:#2d6a1f; background:#e6f5e0; padding:4px 10px; border-radius:100px; text-decoration:none; transition:opacity 0.1s; width:fit-content; }
+  .final-doc-link:hover { opacity:0.75; }
+  .final-doc-btn { display:inline-flex; align-items:center; gap:4px; font-size:11px; color:var(--muted); background:none; border:1px dashed var(--border2); padding:4px 10px; border-radius:100px; cursor:pointer; font-family:var(--sans); transition:all 0.1s; width:fit-content; }
+  .final-doc-btn:hover { border-color:var(--black); color:var(--black); }
+
+  /* VERSIONI ARTWORK */
+  .versions-section { margin-top:20px; }
+  .version-row { display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--border); transition:background 0.1s; }
+  .version-row:last-child { border-bottom:none; }
+  .version-row:hover { background:rgba(0,0,0,0.015); }
+  .version-tag { font-family:var(--mono); font-size:11px; font-weight:500; background:var(--black); color:#fff; padding:3px 8px; border-radius:4px; flex-shrink:0; min-width:36px; text-align:center; }
+  .version-pack { font-size:11px; padding:2px 8px; border-radius:100px; background:var(--surface2); color:var(--muted); flex-shrink:0; }
+  .version-pack.stick { background:#fef3d0; color:#7a5200; }
+  .version-pack.astuccio { background:#e3eeff; color:#1a3d8b; }
+  .version-meta { flex:1; }
+  .version-date { font-size:11px; color:var(--muted); font-family:var(--mono); }
+  .version-sender { font-size:12px; font-weight:500; }
+  .version-note { font-size:11px; color:var(--muted); margin-top:1px; }
+  .version-link { display:inline-flex; align-items:center; gap:4px; font-size:11px; color:#1a3d8b; background:#e3eeff; padding:3px 9px; border-radius:100px; text-decoration:none; flex-shrink:0; transition:opacity 0.1s; }
+  .version-link:hover { opacity:0.75; }
+  .version-del { background:none; border:none; cursor:pointer; color:var(--border2); font-size:16px; line-height:1; padding:0 2px; flex-shrink:0; transition:color 0.1s; }
+  .version-del:hover { color:var(--ko-fg); }
+  .version-empty { padding:12px 14px; font-size:11px; color:var(--muted); font-style:italic; }
 </style>
 </head>
 <body>
@@ -294,12 +322,13 @@ const db = firebase.firestore();
 // ── CONSTANTS ─────────────────────────────────────────────────────
 const STICK_CHECKS = [
   "Dimensioni bobina","Senso bobina","Fustella",
-  "Dati variabili (lotto, scad.)","Tacca colore per il taglio",
+  "Tacca colore per il taglio",
   "Testi di legge su stick","Versione / numero artwork"
 ];
 const AST_F12 = [
-  "Testi legali – correttezza","Ingredienti & allergeni",
-  "Claims & indicazioni nutrizionali","Codice a barre astuccio"
+  "Testi legali – correttezza",
+  "Codice a barre astuccio",
+  "Dati variabili (lotto, scad.)"
 ];
 const AST_F3 = ["Fustella","Colori Pantone / CMYK"];
 const ALL_STATUSES = ["– Da iniziare","🔄 In corso","✅ Approvato","❌ Rigettato","⏸ In attesa"];
@@ -328,7 +357,10 @@ function defaultSkuDoc(name, supplier) {
     notes: {},
     log: [],
     docs: Object.fromEntries(DOC_CATS.map(cat=>[cat,[]])),
-    checkLinks: {}
+    checkLinks: {},
+    versions: [],
+    masterText: {},
+    finalDocs: {}
   };
 }
 
@@ -418,6 +450,9 @@ function startListener() {
       incoming.docs = incoming.docs || Object.fromEntries(DOC_CATS.map(c=>[c,[]]));
       DOC_CATS.forEach(cat=>{ if(!incoming.docs[cat]) incoming.docs[cat]=[]; });
       incoming.checkLinks = incoming.checkLinks || {};
+      incoming.versions = incoming.versions || [];
+      incoming.masterText = incoming.masterText || {};
+      incoming.finalDocs = incoming.finalDocs || {};
       DATA[sku] = incoming;
     });
 
@@ -456,6 +491,9 @@ async function init() {
         d.docs = d.docs||Object.fromEntries(DOC_CATS.map(c=>[c,[]]));
         DOC_CATS.forEach(cat=>{ if(!d.docs[cat]) d.docs[cat]=[]; });
         d.checkLinks = d.checkLinks||{};
+        d.versions = d.versions||[];
+        d.masterText = d.masterText||{};
+        d.finalDocs = d.finalDocs||{};
         DATA[doc.id] = d;
       });
     }
@@ -663,13 +701,33 @@ function renderDetail(sku) {
       <div class="progress-track"><div class="progress-fill" id="det-progress" style="width:0%"></div></div>
     </div>
     <div class="check-block">
-      <div class="check-block-header"><span class="check-block-title">PACKAGING STICK</span><span class="check-block-resp">${d.supplier}</span></div>
+      <div class="check-block-header">
+        <span class="check-block-title">PACKAGING STICK</span>
+        <div style="display:flex;align-items:center;gap:10px">
+          ${masterTextPill(sku,'stick')}
+          <span class="check-block-resp">${d.supplier}</span>
+        </div>
+      </div>
       <div class="check-rows">${checkRows(d.stick,"stick")}</div>
+      <div class="final-docs-grid">
+        ${finalDocItem(sku,'stick','pdf','PDF Definitivo')}
+        ${finalDocItem(sku,'stick','esecutivo','Esecutivo')}
+      </div>
       <div class="global-bar"><span class="global-bar-label">Status globale stick</span><span id="gs-stick">${badge(gs)}</span></div>
     </div>
     <div class="check-block">
-      <div class="check-block-header"><span class="check-block-title">ASTUCCIO — TESTI LEGALI</span><span class="check-block-resp">${d.supplier}</span></div>
+      <div class="check-block-header">
+        <span class="check-block-title">ASTUCCIO — TESTI LEGALI</span>
+        <div style="display:flex;align-items:center;gap:10px">
+          ${masterTextPill(sku,'astuccio')}
+          <span class="check-block-resp">${d.supplier}</span>
+        </div>
+      </div>
       <div class="check-rows">${checkRows(Object.fromEntries(AST_F12.map(c=>[c,d.astuccio[c]])),"astuccio")}</div>
+      <div class="final-docs-grid">
+        ${finalDocItem(sku,'astuccio','pdf','PDF Definitivo')}
+        ${finalDocItem(sku,'astuccio','esecutivo','Esecutivo')}
+      </div>
     </div>
     <div class="check-block">
       <div class="check-block-header"><span class="check-block-title">ASTUCCIO — MISURE &amp; GRAFICA</span><span class="check-block-resp">Fornitore 3</span></div>
@@ -683,6 +741,18 @@ function renderDetail(sku) {
         <tbody id="log-tbody">${logRows}</tbody>
       </table>
       <button class="log-add-btn" onclick="addLogRow('${sku}')">+ Aggiungi revisione</button>
+    </div>
+    <div class="versions-section">
+      <div class="sec-hdr">
+        <span class="sec-hdr-label">Storico Versioni Artwork</span>
+        <button class="doc-add-link" onclick="openVersionModal('${sku}')">
+          <svg width="11" height="11" fill="none" viewBox="0 0 16 16"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          + Nuova versione
+        </button>
+      </div>
+      <div class="check-rows" style="border:1px solid var(--border);border-radius:8px;margin-top:10px;overflow:hidden;background:var(--surface)" id="versions-list">
+        ${renderVersionsList(sku)}
+      </div>
     </div>
     <div class="docs-section">
       <div class="sec-hdr">
@@ -853,6 +923,250 @@ async function saveCheckLink(sku, check) {
   closeModal();
   renderDetail(sku);
   toast("Link allegato al check");
+}
+
+// ── DOCUMENTI FINALI ─────────────────────────────────────────────
+function finalDocItem(sku, section, type, label) {
+  const url = (DATA[sku].finalDocs && DATA[sku].finalDocs[section] && DATA[sku].finalDocs[section][type]) || "";
+  if (url) {
+    return `<div class="final-doc-item">
+      <span class="final-doc-label">${label}</span>
+      <div style="display:flex;align-items:center;gap:6px">
+        <a class="final-doc-link" href="${url}" target="_blank">
+          <svg width="11" height="11" fill="none" viewBox="0 0 16 16"><path d="M4 12L12 4M7 4h5v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          Apri
+        </a>
+        <button class="final-doc-btn" onclick="openFinalDocModal('${sku}','${section}','${type}','${label}')" style="padding:3px 8px;font-size:10px">
+          <svg width="9" height="9" fill="none" viewBox="0 0 16 16"><path d="M11 2l3 3-8 8H3v-3l8-8z" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>`;
+  }
+  return `<div class="final-doc-item">
+    <span class="final-doc-label">${label}</span>
+    <button class="final-doc-btn" onclick="openFinalDocModal('${sku}','${section}','${type}','${label}')">
+      <svg width="9" height="9" fill="none" viewBox="0 0 16 16"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      Allega link
+    </button>
+  </div>`;
+}
+
+function openFinalDocModal(sku, section, type, label) {
+  const current = (DATA[sku].finalDocs && DATA[sku].finalDocs[section] && DATA[sku].finalDocs[section][type]) || "";
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay"; overlay.id = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-title">${label} — ${section === "stick" ? "Stick" : "Astuccio"}</div>
+      <div class="modal-field">
+        <label class="modal-label">Link Google Drive</label>
+        <input class="modal-input" id="finaldoc-url" type="url"
+          placeholder="https://drive.google.com/file/d/..."
+          value="${current}" autocomplete="off">
+      </div>
+      <div class="modal-actions">
+        ${current ? `<button class="modal-btn" onclick="clearFinalDoc('${sku}','${section}','${type}')">Rimuovi</button>` : ""}
+        <button class="modal-btn" onclick="closeModal()">Annulla</button>
+        <button class="modal-btn primary" onclick="saveFinalDoc('${sku}','${section}','${type}','${label}')">Salva</button>
+      </div>
+    </div>`;
+  overlay.addEventListener("click", closeModal);
+  document.body.appendChild(overlay);
+  setTimeout(() => { const el = document.getElementById("finaldoc-url"); if(el){el.focus();el.select();} }, 50);
+}
+
+async function saveFinalDoc(sku, section, type, label) {
+  const url = document.getElementById("finaldoc-url").value.trim();
+  if (!url) { toast("Inserisci un link Drive"); return; }
+  if (!url.startsWith("http")) { toast("Link non valido"); return; }
+  if (!DATA[sku].finalDocs) DATA[sku].finalDocs = {};
+  if (!DATA[sku].finalDocs[section]) DATA[sku].finalDocs[section] = {};
+  DATA[sku].finalDocs[section][type] = url;
+  await saveSku(sku);
+  closeModal();
+  renderDetail(sku);
+  toast(`${label} salvato`);
+}
+
+async function clearFinalDoc(sku, section, type) {
+  if (!DATA[sku].finalDocs || !DATA[sku].finalDocs[section]) return;
+  delete DATA[sku].finalDocs[section][type];
+  await saveSku(sku);
+  closeModal();
+  renderDetail(sku);
+  toast("Documento rimosso");
+}
+
+// ── MASTER TEXT ──────────────────────────────────────────────────
+function masterTextPill(sku, section) {
+  const url = (DATA[sku].masterText && DATA[sku].masterText[section]) || "";
+  if (url) {
+    return `<a class="drive-pill" href="${url}" target="_blank" title="MasterText — apri in Drive">
+      <svg width="10" height="10" fill="none" viewBox="0 0 16 16"><path d="M4 12L12 4M7 4h5v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      MasterText
+    </a>
+    <button class="drive-pill-add" onclick="openMasterTextModal('${sku}','${section}')" title="Modifica link MasterText" style="border-color:rgba(255,255,255,0.3);color:rgba(255,255,255,0.5)">
+      <svg width="9" height="9" fill="none" viewBox="0 0 16 16"><path d="M11 2l3 3-8 8H3v-3l8-8z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>`;
+  }
+  return `<button class="drive-pill-add" onclick="openMasterTextModal('${sku}','${section}')" style="border-color:rgba(255,255,255,0.3);color:rgba(255,255,255,0.5)">
+    <svg width="9" height="9" fill="none" viewBox="0 0 16 16"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    MasterText
+  </button>`;
+}
+
+function openMasterTextModal(sku, section) {
+  const current = (DATA[sku].masterText && DATA[sku].masterText[section]) || "";
+  const sectionLabel = section === "stick" ? "Packaging Stick" : "Astuccio — Testi Legali";
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay"; overlay.id = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-title">MasterText — ${sectionLabel}</div>
+      <div class="modal-field">
+        <label class="modal-label">Link Google Drive</label>
+        <input class="modal-input" id="mastertext-url" type="url"
+          placeholder="https://drive.google.com/file/d/..."
+          value="${current}" autocomplete="off">
+      </div>
+      <p style="font-size:11px;color:var(--muted);margin-top:-4px">Inserisci il link al file MasterText nella vostra repository Drive.</p>
+      <div class="modal-actions">
+        ${current ? `<button class="modal-btn" onclick="clearMasterText('${sku}','${section}')">Rimuovi</button>` : ""}
+        <button class="modal-btn" onclick="closeModal()">Annulla</button>
+        <button class="modal-btn primary" onclick="saveMasterText('${sku}','${section}')">Salva</button>
+      </div>
+    </div>`;
+  overlay.addEventListener("click", closeModal);
+  document.body.appendChild(overlay);
+  setTimeout(() => { const el = document.getElementById("mastertext-url"); if(el){el.focus();el.select();} }, 50);
+}
+
+async function saveMasterText(sku, section) {
+  const url = document.getElementById("mastertext-url").value.trim();
+  if (!url) { toast("Inserisci un link Drive"); return; }
+  if (!url.startsWith("http")) { toast("Link non valido"); return; }
+  if (!DATA[sku].masterText) DATA[sku].masterText = {};
+  DATA[sku].masterText[section] = url;
+  await saveSku(sku);
+  closeModal();
+  renderDetail(sku);
+  toast("MasterText salvato");
+}
+
+async function clearMasterText(sku, section) {
+  if (!DATA[sku].masterText) return;
+  delete DATA[sku].masterText[section];
+  await saveSku(sku);
+  closeModal();
+  renderDetail(sku);
+  toast("MasterText rimosso");
+}
+
+// ── VERSIONS ─────────────────────────────────────────────────────
+function renderVersionsList(sku) {
+  const versions = (DATA[sku].versions||[]).slice().reverse();
+  if (!versions.length) return '<div class="version-empty">Nessuna versione caricata</div>';
+  return versions.map((v, reversedIdx) => {
+    const realIdx = (DATA[sku].versions.length - 1) - reversedIdx;
+    const packClass = v.pack==="Stick" ? "stick" : v.pack==="Astuccio" ? "astuccio" : "";
+    const linkHtml = v.url
+      ? `<a class="version-link" href="${v.url}" target="_blank">
+          <svg width="11" height="11" fill="none" viewBox="0 0 16 16"><path d="M4 12L12 4M7 4h5v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          Apri
+         </a>`
+      : "";
+    return `<div class="version-row">
+      <span class="version-tag">${v.ver||"v?"}</span>
+      <span class="version-pack ${packClass}">${v.pack||""}</span>
+      <div class="version-meta">
+        <div class="version-sender">${v.sender||""}</div>
+        <div class="version-date">${v.data||""} ${v.note ? "· "+v.note : ""}</div>
+      </div>
+      ${linkHtml}
+      <button class="version-del" onclick="deleteVersion('${sku}',${realIdx})" title="Elimina">×</button>
+    </div>`;
+  }).join("");
+}
+
+function openVersionModal(sku) {
+  const d = DATA[sku];
+  const today = new Date().toLocaleDateString("it-IT");
+  // auto-increment version number
+  const versions = d.versions||[];
+  const lastVer = versions.length ? versions[versions.length-1].ver||"v1.0" : "v0.0";
+  const nextNum = parseFloat(lastVer.replace("v","")) + 0.1;
+  const nextVer = "v" + nextNum.toFixed(1);
+
+  const overlay=document.createElement("div");
+  overlay.className="modal-overlay"; overlay.id="modal-overlay";
+  overlay.innerHTML=`
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-title">Carica nuova versione artwork</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="modal-field">
+          <label class="modal-label">Versione</label>
+          <input class="modal-input" id="ver-num" value="${nextVer}" autocomplete="off">
+        </div>
+        <div class="modal-field">
+          <label class="modal-label">Packaging</label>
+          <select class="modal-input" id="ver-pack">
+            <option value="Stick">Stick</option>
+            <option value="Astuccio">Astuccio</option>
+            <option value="Entrambi">Entrambi</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Inviato da</label>
+        <input class="modal-input" id="ver-sender" placeholder="Es. Fornitore 1 / Mario Rossi" autocomplete="off">
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Data</label>
+        <input class="modal-input" id="ver-data" value="${today}" autocomplete="off">
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Link Google Drive (PDF / AI)</label>
+        <input class="modal-input" id="ver-url" type="url" placeholder="https://drive.google.com/file/d/..." autocomplete="off">
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Note</label>
+        <input class="modal-input" id="ver-note" placeholder="Es. Corretta fustella, aggiornato barcode..." autocomplete="off">
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn" onclick="closeModal()">Annulla</button>
+        <button class="modal-btn primary" onclick="saveVersion('${sku}')">Salva versione</button>
+      </div>
+    </div>`;
+  overlay.addEventListener("click", closeModal);
+  document.body.appendChild(overlay);
+  setTimeout(()=>{ const el=document.getElementById("ver-sender"); if(el) el.focus(); },50);
+}
+
+async function saveVersion(sku) {
+  const ver    = document.getElementById("ver-num").value.trim();
+  const pack   = document.getElementById("ver-pack").value;
+  const sender = document.getElementById("ver-sender").value.trim();
+  const data   = document.getElementById("ver-data").value.trim();
+  const url    = document.getElementById("ver-url").value.trim();
+  const note   = document.getElementById("ver-note").value.trim();
+  if (!sender) { toast("Inserisci chi ha inviato la versione"); return; }
+  if (url && !url.startsWith("http")) { toast("Link Drive non valido"); return; }
+  if (!DATA[sku].versions) DATA[sku].versions=[];
+  DATA[sku].versions.push({ver, pack, sender, data, url, note});
+  await saveSku(sku);
+  closeModal();
+  const list = document.getElementById("versions-list");
+  if (list) list.innerHTML = renderVersionsList(sku);
+  toast(`Versione ${ver} salvata`);
+}
+
+async function deleteVersion(sku, idx) {
+  if (!confirm("Eliminare questa versione?")) return;
+  DATA[sku].versions.splice(idx,1);
+  await saveSku(sku);
+  const list = document.getElementById("versions-list");
+  if (list) list.innerHTML = renderVersionsList(sku);
+  toast("Versione eliminata");
 }
 
 function openEditSkuModal(sku) {
