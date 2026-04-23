@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Soulgreen — Artwork Manager</title>
+<title>Soulgreen — Artwork Manager v2</title>
 
 <!-- Firebase compat SDK (works as plain script, no bundler needed) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -734,14 +734,6 @@ function renderDetail(sku) {
       <div class="check-rows">${checkRows(Object.fromEntries(AST_F3.map(c=>[c,d.astuccio[c]])),"astuccio")}</div>
       <div class="global-bar"><span class="global-bar-label">Status globale astuccio</span><span id="gs-ast">${badge(ga)}</span></div>
     </div>
-    <div class="log-section">
-      <div class="sec-hdr"><span class="sec-hdr-label">Log Revisioni</span></div>
-      <table class="log-table">
-        <thead><tr><th>Data</th><th>Packaging</th><th>Versione</th><th>Azione / Inviato da</th><th>Esito</th><th>Note</th></tr></thead>
-        <tbody id="log-tbody">${logRows}</tbody>
-      </table>
-      <button class="log-add-btn" onclick="addLogRow('${sku}')">+ Aggiungi revisione</button>
-    </div>
     <div class="versions-section">
       <div class="sec-hdr">
         <span class="sec-hdr-label">Storico Versioni Artwork</span>
@@ -753,6 +745,14 @@ function renderDetail(sku) {
       <div class="check-rows" style="border:1px solid var(--border);border-radius:8px;margin-top:10px;overflow:hidden;background:var(--surface)" id="versions-list">
         ${renderVersionsList(sku)}
       </div>
+    </div>
+    <div class="log-section">
+      <div class="sec-hdr"><span class="sec-hdr-label">Log Revisioni</span></div>
+      <table class="log-table">
+        <thead><tr><th>Data</th><th>Packaging</th><th>Versione</th><th>Azione / Inviato da</th><th>Esito</th><th>Note</th></tr></thead>
+        <tbody id="log-tbody">${logRows}</tbody>
+      </table>
+      <button class="log-add-btn" onclick="addLogRow('${sku}')">+ Aggiungi revisione</button>
     </div>
     <div class="docs-section">
       <div class="sec-hdr">
